@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Weather Dashboard</title>
+<style>
+  :root {
+    --bg:#f3f6fb; --card:#ffffff; --text:#1c2733; --muted:#6a7787; --accent:#2f7de1;
+    --border:#e1e7ef; --danger:#c0392b; --warn:#b36b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#10151c; --card:#19212b; --text:#e8eef5; --muted:#93a1b2; --accent:#5aa2ff; --border:#2a3542; --danger:#ff7b6b; --warn:#ffb74d; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.4; }
+  .wrap { max-width:1000px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 12px; }
+  h2 { font-size:1.05rem; margin:0 0 10px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  form.row { display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=text] { flex:1 1 200px; min-width:0; padding:10px 12px; font-size:1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); }
+  button { padding:10px 14px; font-size:1rem; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  button:disabled { opacity:.6; cursor:wait; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:.9rem; color:var(--muted); }
+  .toolbar .spacer { flex:1; }
+  .banner { padding:12px 14px; border-radius:8px; margin-bottom:16px; border:1px solid; }
+  .banner.error { color:var(--danger); border-color:var(--danger); }
+  .banner.alert { color:var(--warn); border-color:var(--warn); }
+  .hidden { display:none; }
+  .current { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .big { font-size:3rem; font-weight:600; line-height:1; }
+  .icon { font-size:3rem; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; flex:1 1 300px; }
+  .stat { background:var(--bg); border-radius:8px; padding:10px; }
+  .stat .label { font-size:.8rem; color:var(--muted); }
+  .stat .value { font-size:1.15rem; font-weight:600; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .chartbox { position:relative; height:240px; }
+  .forecast { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
+  .day { background:var(--bg); border-radius:8px; padding:10px; text-align:center; }
+  .day .d { font-weight:600; font-size:.9rem; }
+  .day .i { font-size:1.8rem; }
+  .day .c { font-size:.8rem; color:var(--muted); min-height:2.2em; }
+  .aqi { display:inline-block; padding:4px 12px; border-radius:999px; color:#fff; font-weight:600; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chip { background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:4px 10px; font-size:.85rem; }
+  .chip button { background:none; color:var(--muted); padding:0 0 0 6px; font-size:.9rem; }
+  .seg { display:inline-flex; border:1px solid var(--accent); border-radius:8px; overflow:hidden; }
+  .seg button { border-radius:0; background:transparent; color:var(--accent); padding:6px 10px; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  @media (max-width:700px) {
+    .grid2 { grid-template-columns:1fr; }
+    .big, .icon { font-size:2.4rem; }
+    button { padding:12px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌤️ Live Weather Dashboard</h1>
+
+  <!-- Search -->
+  <div class="card">
+    <form class="row" id="searchForm" novalidate>
+      <input type="text" id="cityInput" placeholder="Search a city, e.g. Colombo" aria-label="City name" autocomplete="off">
+      <button type="submit" id="searchBtn">Search</button>
+      <button type="button" class="secondary" id="locBtn">📍 My location</button>
+    </form>
+    <div class="toolbar">
+      <span>Last updated: <strong id="updated">—</strong></span>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="Temperature unit">
+        <button type="button" id="unitC" class="on">°C</button>
+        <button type="button" id="unitF">°F</button>
+      </div>
+      <button type="button" class="secondary" id="refreshBtn">⟳ Refresh</button>
+    </div>
+  </div>
+
+  <div id="error" class="banner error hidden" role="alert"></div>
+  <div id="alerts"></div>
+  <div id="loading" class="card hidden">Loading weather data…</div>
+
+  <div id="dashboard" class="hidden">
+    <!-- Current -->
+    <div class="card">
+      <h2 id="placeName"></h2>
+      <div class="current">
+        <div class="icon" id="curIcon"></div>
+        <div>
+          <div class="big" id="curTemp"></div>
+          <div id="curCond" style="color:var(--muted)"></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="label">Feels like</div><div class="value" id="curFeels"></div></div>
+          <div class="stat"><div class="label">Humidity</div><div class="value" id="curHum"></div></div>
+          <div class="stat"><div class="label">Wind</div><div class="value" id="curWind"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 24h charts -->
+    <div class="grid2">
+      <div class="card"><h2>Next 24 hours — temperature</h2><div class="chartbox"><canvas id="tempChart"></canvas></div></div>
+      <div class="card"><h2>Next 24 hours — chance of rain</h2><div class="chartbox"><canvas id="rainChart"></canvas></div></div>
+    </div>
+
+    <!-- 7 day -->
+    <div class="card">
+      <h2>7-day forecast</h2>
+      <div class="forecast" id="forecast"></div>
+    </div>
+
+    <!-- Air quality -->
+    <div class="card">
+      <h2>Air quality</h2>
+      <div id="aqiBox"></div>
+    </div>
+  </div>
+
+  <!-- Compare -->
+  <div class="card">
+    <h2>Compare cities (next 24 hours)</h2>
+    <form class="row" id="compareForm" novalidate>
+      <input type="text" id="compareInput" placeholder="Add a city to compare" aria-label="City to compare" autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+    <div class="chips" id="chips"></div>
+    <div class="chartbox" style="margin-top:12px"><canvas id="compareChart"></canvas></div>
+    <p id="compareHint" style="color:var(--muted);font-size:.9rem;margin:8px 0 0">Search a city above, then add at least one more to compare.</p>
+  </div>
+
+  <p style="color:var(--muted);font-size:.8rem">Data: <a href="https://open-meteo.com/" style="color:var(--accent)">Open-Meteo</a> (free, no API key).</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+"use strict";
+
+/* ---------- Helpers ---------- */
+const $ = id => document.getElementById(id);
+
+// Weather code -> [description, emoji]  (WMO codes used by Open-Meteo)
+const WMO = {
+  0:["Clear sky","☀️"], 1:["Mainly clear","🌤️"], 2:["Partly cloudy","⛅"], 3:["Overcast","☁️"],
+  45:["Fog","🌫️"], 48:["Rime fog","🌫️"],
+  51:["Light drizzle","🌦️"], 53:["Drizzle","🌦️"], 55:["Heavy drizzle","🌦️"],
+  56:["Freezing drizzle","🌧️"], 57:["Freezing drizzle","🌧️"],
+  61:["Light rain","🌧️"], 63:["Rain","🌧️"], 65:["Heavy rain","🌧️"],
+  66:["Freezing rain","🌧️"], 67:["Freezing rain","🌧️"],
+  71:["Light snow","🌨️"], 73:["Snow","🌨️"], 75:["Heavy snow","❄️"], 77:["Snow grains","🌨️"],
+  80:["Rain showers","🌦️"], 81:["Rain showers","🌧️"], 82:["Violent showers","⛈️"],
+  85:["Snow showers","🌨️"], 86:["Snow showers","🌨️"],
+  95:["Thunderstorm","⛈️"], 96:["Thunderstorm, hail","⛈️"], 99:["Thunderstorm, hail","⛈️"]
+};
+const wmo = code => WMO[code] || ["Unknown","❓"];
+
+// US AQI scale -> label, colour, advice
+function aqiInfo(v) {
+  if (v <= 50)  return ["Good", "#2e9e4f", "Air quality is satisfactory."];
+  if (v <= 100) return ["Moderate", "#c9a100", "Acceptable; unusually sensitive people may be affected."];
+  if (v <= 150) return ["Unhealthy for sensitive groups", "#e67e22", "Sensitive groups should limit outdoor exertion."];
+  if (v <= 200) return ["Unhealthy", "#d9382c", "Everyone may begin to feel effects."];
+  if (v <= 300) return ["Very unhealthy", "#8e44ad", "Health alert: avoid outdoor activity."];
+  return ["Hazardous", "#6b1d2a", "Emergency conditions: stay indoors."];
+}
+
+let unit = "C";                                   // current display unit
+const toDisp = c => unit === "C" ? c : c * 9 / 5 + 32;
+const fmtT = c => Math.round(toDisp(c)) + "°" + unit;
+
+/* ---------- API calls (Open-Meteo, no key needed) ---------- */
+async function fetchJSON(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);   // 10 s timeout
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error("API error " + res.status);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+
+async function geocode(name) {
+  const url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=" + encodeURIComponent(name);
+  const data = await fetchJSON(url);
+  if (!data.results || !data.results.length) {
+    const e = new Error(`City "${name}" was not found. Check the spelling and try again.`);
+    e.notFound = true;
+    throw e;
+  }
+  const r = data.results[0];
+  return { name: r.name, country: r.country || "", admin: r.admin1 || "", lat: r.latitude, lon: r.longitude };
+}
+
+async function getWeather(lat, lon) {
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code" +
+    "&hourly=temperature_2m,precipitation_probability" +
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+    "&timezone=auto&forecast_days=7";
+  return fetchJSON(url);
+}
+
+async function getAir(lat, lon) {
+  try {
+    const url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" + lat + "&longitude=" + lon +
+      "&current=us_aqi,pm2_5&timezone=auto";
+    const d = await fetchJSON(url);
+    return d.current && d.current.us_aqi != null ? d.current : null;
+  } catch { return null; }           // air quality failing must not break the page
+}
+
+// Take the next 24 hourly values starting from the current hour
+function next24(w) {
+  const start = w.current.time.slice(0, 13) + ":00";
+  let i = w.hourly.time.indexOf(start);
+  if (i < 0) i = 0;
+  return {
+    labels: w.hourly.time.slice(i, i + 24).map(t => t.slice(11, 16)),
+    temps:  w.hourly.temperature_2m.slice(i, i + 24),
+    rain:   w.hourly.precipitation_probability.slice(i, i + 24)
+  };
+}
+
+/* ---------- State ---------- */
+let main = null;         // { place, weather, air }
+let compare = [];        // [{ place, temps }]
+let charts = {};
+
+/* ---------- UI helpers ---------- */
+function showError(msg) { const e = $("error"); e.textContent = msg; e.classList.remove("hidden"); }
+function clearError()   { $("error").classList.add("hidden"); }
+function setBusy(b) {
+  $("loading").classList.toggle("hidden", !b);
+  ["searchBtn","refreshBtn","locBtn"].forEach(id => $(id).disabled = b);
+}
+function placeLabel(p) { return [p.name, p.admin && p.admin !== p.name ? p.admin : "", p.country].filter(Boolean).join(", "); }
+
+/* ---------- Rendering ---------- */
+function renderAll() {
+  if (!main) return;
+  const { place, weather: w, air } = main;
+  const [cond, icon] = wmo(w.current.weather_code);
+
+  $("placeName").textContent = placeLabel(place);
+  $("curIcon").textContent = icon;
+  $("curTemp").textContent = fmtT(w.current.temperature_2m);
+  $("curCond").textContent = cond;
+  $("curFeels").textContent = fmtT(w.current.apparent_temperature);
+  $("curHum").textContent = w.current.relative_humidity_2m + "%";
+  $("curWind").textContent = Math.round(w.current.wind_speed_10m) + " km/h";
+
+  // 7-day forecast
+  const f = $("forecast"); f.textContent = "";
+  w.daily.time.forEach((d, i) => {
+    const [c, ic] = wmo(w.daily.weather_code[i]);
+    const date = new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    const el = document.createElement("div"); el.className = "day";
+    const parts = [
+      ["d", date], ["i", ic],
+      ["", fmtT(w.daily.temperature_2m_max[i]) + " / " + fmtT(w.daily.temperature_2m_min[i])],
+      ["c", c + (w.daily.precipitation_probability_max[i] != null ? " · 💧" + w.daily.precipitation_probability_max[i] + "%" : "")]
+    ];
+    parts.forEach(([cls, txt]) => { const s = document.createElement("div"); if (cls) s.className = cls; s.textContent = txt; el.appendChild(s); });
+    f.appendChild(el);
+  });
+
+  // Air quality
+  const box = $("aqiBox"); box.textContent = "";
+  if (air) {
+    const [label, color, advice] = aqiInfo(air.us_aqi);
+    const badge = document.createElement("span"); badge.className = "aqi"; badge.style.background = color;
+    badge.textContent = "AQI " + Math.round(air.us_aqi) + " — " + label;
+    const p = document.createElement("p"); p.textContent = advice + (air.pm2_5 != null ? "  (PM2.5: " + air.pm2_5 + " µg/m³)" : "");
+    box.append(badge, p);
+  } else {
+    box.textContent = "Air quality data is not available for this location right now.";
+  }
+
+  renderAlerts(w);
+  renderCharts(w);
+  renderCompare();
+  $("dashboard").classList.remove("hidden");
+}
+
+// Bonus: simple weather alerts
+function renderAlerts(w) {
+  const box = $("alerts"); box.textContent = "";
+  const msgs = [];
+  const h = next24(w);
+  if (Math.max(w.current.apparent_temperature, ...h.temps) >= 35) msgs.push("🔥 Heat alert: temperatures feel like 35 °C or more.");
+  if (Math.max(...h.rain.filter(x => x != null), 0) >= 80) msgs.push("🌧️ Heavy rain likely: 80%+ rain chance in the next 24 hours.");
+  if (w.current.wind_speed_10m >= 50) msgs.push("💨 Strong wind: 50 km/h or more.");
+  if (w.current.weather_code >= 95) msgs.push("⛈️ Thunderstorm in the area.");
+  msgs.forEach(m => { const d = document.createElement("div"); d.className = "banner alert"; d.textContent = m; box.appendChild(d); });
+}
+
+function makeChart(id, config) {
+  if (typeof Chart === "undefined") return;       // CDN failed: skip charts, page still works
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), config);
+}
+
+function renderCharts(w) {
+  const h = next24(w);
+  const opts = (yTitle, extra = {}) => ({
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { y: { title: { display: true, text: yTitle }, ...extra }, x: { ticks: { maxTicksLimit: 8 } } }
+  });
+  makeChart("tempChart", {
+    type: "line",
+    data: { labels: h.labels, datasets: [{ label: "Temperature", data: h.temps.map(toDisp), borderColor: "#e74c3c", backgroundColor: "rgba(231,76,60,.15)", fill: true, tension: .3, pointRadius: 2 }] },
+    options: opts("°" + unit)
+  });
+  makeChart("rainChart", {
+    type: "bar",
+    data: { labels: h.labels, datasets: [{ label: "Rain chance", data: h.rain, backgroundColor: "#2f7de1" }] },
+    options: opts("%", { min: 0, max: 100 })
+  });
+}
+
+const COLORS = ["#e74c3c", "#2f7de1", "#27ae60", "#8e44ad", "#e67e22", "#16a085"];
+function renderCompare() {
+  const chips = $("chips"); chips.textContent = "";
+  const entries = [];
+  if (main) entries.push({ place: main.place, temps: next24(main.weather).temps, isMain: true });
+  compare.forEach(c => entries.push(c));
+
+  entries.forEach(e => {
+    const chip = document.createElement("span"); chip.className = "chip";
+    chip.textContent = e.place.name;
+    if (!e.isMain) {
+      const x = document.createElement("button"); x.type = "button"; x.textContent = "✕"; x.setAttribute("aria-label", "Remove " + e.place.name);
+      x.onclick = () => { compare = compare.filter(c => c !== e); renderCompare(); };
+      chip.appendChild(x);
+    }
+    chips.appendChild(chip);
+  });
+
+  $("compareHint").classList.toggle("hidden", entries.length >= 2);
+  if (!entries.length) { if (charts.compareChart) { charts.compareChart.destroy(); delete charts.compareChart; } return; }
+
+  const labels = Array.from({ length: 24 }, (_, i) => i === 0 ? "Now" : "+" + i + "h");
+  makeChart("compareChart", {
+    type: "line",
+    data: { labels, datasets: entries.map((e, i) => ({
+      label: e.place.name, data: e.temps.map(toDisp), borderColor: COLORS[i % COLORS.length], tension: .3, pointRadius: 1
+    })) },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true } },
+      scales: { y: { title: { display: true, text: "°" + unit } }, x: { ticks: { maxTicksLimit: 8 } } } }
+  });
+}
+
+/* ---------- Actions ---------- */
+function stamp() { $("updated").textContent = new Date().toLocaleString(); }
+
+async function loadPlace(place) {
+  clearError(); setBusy(true);
+  try {
+    const [weather, air] = await Promise.all([getWeather(place.lat, place.lon), getAir(place.lat, place.lon)]);
+    main = { place, weather, air };
+    stamp(); renderAll();
+  } catch (err) {
+    showError(err.name === "AbortError" ? "The weather service took too long to respond. Please try again." :
+      "Could not load weather data (" + err.message + "). Please check your connection and try again.");
+  } finally { setBusy(false); }
+}
+
+async function searchCity(name) {
+  name = name.trim();
+  if (!name) { showError("Please type a city name first."); return; }
+  clearError(); setBusy(true);
+  try {
+    const place = await geocode(name);
+    setBusy(false);
+    await loadPlace(place);
+  } catch (err) {
+    showError(err.notFound ? err.message :
+      err.name === "AbortError" ? "The search timed out. Please try again." :
+      "Could not search for that city (" + err.message + "). Please try again.");
+    setBusy(false);
+  }
+}
+
+async function addCompare(name) {
+  name = name.trim();
+  if (!name) { showError("Please type a city name to compare."); return; }
+  if (!main) { showError("Search for a main city first, then add cities to compare."); return; }
+  clearError();
+  try {
+    const place = await geocode(name);
+    if (place.name === main.place.name || compare.some(c => c.place.name === place.name)) { showError(place.name + " is already on the chart."); return; }
+    if (compare.length >= 4) { showError("You can compare up to 4 extra cities."); return; }
+    const w = await getWeather(place.lat, place.lon);
+    compare.push({ place, temps: next24(w).temps });
+    $("compareInput").value = "";
+    renderCompare();
+  } catch (err) {
+    showError(err.notFound ? err.message : "Could not add that city (" + err.message + ").");
+  }
+}
+
+async function refresh() {
+  if (!main) { showError("Nothing to refresh yet. Search for a city first."); return; }
+  await loadPlace(main.place);
+  // refresh comparison cities too
+  for (const c of compare) {
+    try { c.temps = next24(await getWeather(c.place.lat, c.place.lon)).temps; } catch { /* keep old data */ }
+  }
+  renderCompare();
+}
+
+function useMyLocation() {
+  if (!navigator.geolocation) { showError("Your browser does not support location."); return; }
+  clearError(); setBusy(true);
+  navigator.geolocation.getCurrentPosition(
+    pos => loadPlace({ name: "Your location", country: "", admin: "", lat: pos.coords.latitude, lon: pos.coords.longitude }),
+    () => { setBusy(false); showError("Location access was denied or unavailable. You can still search for a city."); },
+    { timeout: 10000 }
+  );
+}
+
+function setUnit(u) {
+  unit = u;
+  $("unitC").classList.toggle("on", u === "C");
+  $("unitF").classList.toggle("on", u === "F");
+  renderAll();
+}
+
+/* ---------- Events ---------- */
+$("searchForm").addEventListener("submit", e => { e.preventDefault(); searchCity($("cityInput").value); });
+$("compareForm").addEventListener("submit", e => { e.preventDefault(); addCompare($("compareInput").value); });
+$("refreshBtn").addEventListener("click", refresh);
+$("locBtn").addEventListener("click", useMyLocation);
+$("unitC").addEventListener("click", () => setUnit("C"));
+$("unitF").addEventListener("click", () => setUnit("F"));
+
+// Load a default city on first visit so the page is never empty
+searchCity("Colombo");
+</script>
+</body>
+</html>
